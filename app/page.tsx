@@ -59,7 +59,7 @@ export default function HomePage() {
 
           <div className="max-w-sm space-y-4 pt-2">
             <Input
-              placeholder="Enter your Canadian postal code"
+              placeholder="Enter a Canadian postal code"
               value={postal}
               onChange={(e) => setPostal(formatPostal(e.target.value))}
               inputMode="text"
@@ -82,7 +82,6 @@ export default function HomePage() {
         <div className="flex justify-center md:justify-end">
           <div className="relative w-full max-w-sm">
             <div className="absolute inset-0 flex items-center justify-center">
-              {/* Placeholder — we’ll swap this for your real image next */}
               <div className="relative -mt-4 h-[320px] w-[320px] md:-mt-10 md:h-[420px] md:w-[420px]">
                 <Image
                   src="/hero.png"
@@ -214,13 +213,40 @@ function RepsCard({ title, reps }: { title: string; reps: LookupResponse["reps"]
         ) : (
           <div className="space-y-4">
             {reps.slice(0, 2).map((r, idx) => (
-              <div key={idx} className="space-y-1">
-                <div className="font-medium">{r.name}</div>
-                <div className="text-sm text-zinc-600">
-                  {r.elected_office}
-                  {r.district_name ? ` • ${r.district_name}` : ""}
-                  {r.party_name ? ` • ${r.party_name}` : ""}
+              <div key={idx} className="space-y-2">
+                <div className="flex items-center gap-3">
+                  {/* Avatar */}
+                  <div className="h-12 w-12 overflow-hidden rounded-full bg-zinc-100 ring-1 ring-zinc-200">
+                    {r.photo_url ? (
+                      <img
+                        src={r.photo_url}
+                        alt={r.name}
+                        className="h-full w-full object-cover"
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        onError={(e) => {
+                          // If image fails, hide it so fallback initials show next render
+                          (e.currentTarget as HTMLImageElement).style.display = "none";
+                        }}
+                      />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-zinc-600">
+                        {getInitials(r.name)}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Name + subtitle */}
+                  <div className="min-w-0">
+                    <div className="font-medium leading-tight">{r.name}</div>
+                    <div className="text-sm text-zinc-600">
+                      {r.elected_office}
+                      {r.district_name ? ` • ${r.district_name}` : ""}
+                      {r.party_name ? ` • ${r.party_name}` : ""}
+                    </div>
+                  </div>
                 </div>
+
                 <div className="flex flex-wrap gap-2 pt-1 text-sm">
                   {r.email && (
                     <a className="underline" href={`mailto:${r.email}`}>
@@ -240,12 +266,19 @@ function RepsCard({ title, reps }: { title: string; reps: LookupResponse["reps"]
                 </div>
               </div>
             ))}
+
             {reps.length > 2 && <div className="text-xs text-zinc-500">+ {reps.length - 2} more (postal codes can overlap districts)</div>}
           </div>
         )}
       </div>
     </Card>
   );
+}
+function getInitials(name: string) {
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] ?? "";
+  const last = parts.length > 1 ? parts[parts.length - 1]?.[0] ?? "" : "";
+  return (first + last).toUpperCase();
 }
 
 function Issues() {
