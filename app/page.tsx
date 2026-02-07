@@ -11,6 +11,16 @@ function formatPostal(input: string) {
   return raw.slice(0, 3) + " " + raw.slice(3, 6);
 }
 
+function sortMunicipal(reps: LookupResponse["reps"]["municipal"]) {
+  const isMayor = (r: any) =>
+    (r.elected_office || "").toLowerCase().includes("mayor");
+
+  // Keep original order except move mayor(s) to the end
+  const nonMayor = reps.filter((r) => !isMayor(r));
+  const mayor = reps.filter((r) => isMayor(r));
+  return [...nonMayor, ...mayor];
+}
+
 export default function HomePage() {
   const [postal, setPostal] = useState("");
   const [loading, setLoading] = useState(false);
@@ -112,9 +122,10 @@ export default function HomePage() {
         {data.province && <Pill>Province: {data.province}</Pill>}
       </div>
       <div className="grid gap-4 md:grid-cols-3">
-        <RepsCard title="Municipal" reps={data.reps.municipal} />
+        <RepsCard title="Municipal" reps={sortMunicipal(data.reps.municipal)} />
         <RepsCard title="Provincial" reps={data.reps.provincial} />
         <RepsCard title="Federal" reps={data.reps.federal} />
+        
       </div>
 
       <Issues />
@@ -127,6 +138,7 @@ export default function HomePage() {
     <button className="hover:text-zinc-900" onClick={() => setModal("about")}>About</button>
   </div>
 </footer>
+
 {modal && (
   <div
     className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
@@ -212,7 +224,7 @@ function RepsCard({ title, reps }: { title: string; reps: LookupResponse["reps"]
           <div className="text-sm text-zinc-600">No results returned. Try a different postal code.</div>
         ) : (
           <div className="space-y-4">
-            {reps.slice(0, 2).map((r, idx) => (
+            {reps.slice(0, 3).filter(r => r && r.name).map((r, idx) => (
               <div key={idx} className="space-y-2">
                 <div className="flex items-center gap-3">
                   {/* Avatar */}

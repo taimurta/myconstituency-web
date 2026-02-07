@@ -34,6 +34,63 @@ function dedupeByName(reps: Representative[]) {
   }
   return out;
 }
+async function fetchPrimeMinister() {
+  const res = await fetch(
+    "https://represent.opennorth.ca/representatives/house-of-commons/?limit=500",
+    {
+      headers: { Accept: "application/json" },
+      next: { revalidate: 3600 },
+    }
+  );
+  if (!res.ok) return null;
+
+  const json = await res.json();
+  const objects: Representative[] = Array.isArray(json?.objects) ? json.objects : [];
+
+  const normalize = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+
+  const isActualPMRole = (role: string) => {
+    const r = normalize(role);
+
+    // must start with "prime minister" (allows "prime minister of canada ..." etc)
+    if (!r.startsWith("prime minister")) return false;
+
+    // reject common false positives
+    if (r.includes("parliamentary secretary")) return false; // e.g. "Parliamentary Secretary to the Prime Minister"
+    if (r.includes("to the prime minister")) return false;
+    if (r.startsWith("deputy prime minister")) return false;
+
+    return true;
+  };
+
+  return (
+    objects.find(
+      (r: any) => Array.isArray(r?.extra?.roles) && r.extra.roles.some(isActualPMRole)
+    ) ?? null
+  );
+}
+
+
+
+async function fetchPremier(provinceCode: string | undefined) {
+  if (provinceCode !== "AB") return null;
+
+  const res = await fetch("https://represent.opennorth.ca/representatives/alberta-legislature/?limit=500", {
+    headers: { Accept: "application/json" },
+    next: { revalidate: 3600 },
+  });
+  if (!res.ok) return null;
+
+  const json = await res.json();
+  const objects: Representative[] = Array.isArray(json?.objects) ? json.objects : [];
+
+  // Premier is also typically a ROLE in extra.roles
+  return (
+    objects.find((r: any) => Array.isArray(r?.extra?.roles) && r.extra.roles.some((x: string) => /premier/i.test(x))) ||
+    null
+  );
+}
+
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
@@ -65,6 +122,43 @@ export async function GET(req: Request) {
   const combined = dedupeByName([...centroid, ...concord]);
 
   const buckets = bucket(combined);
+
+  // Add Premier + Prime Minister (province/nation-wide roles)
+const provinceCode = data.province ?? undefined;
+
+const [premier, primeMinister] = await Promise.all([
+  fetchPremier(provinceCode),
+  fetchPrimeMinister(),
+]);
+
+if (premier) {
+  const exists = buckets.provincial.some(
+    (r) => (r.name || "").toLowerCase() === (premier.name || "").toLowerCase()
+  );
+
+  if (!exists) {
+    buckets.provincial.push({
+      ...premier,
+      elected_office: "Premier",
+      district_name: "Alberta",
+    });
+  }
+}
+
+if (primeMinister) {
+  const exists = buckets.federal.some(
+    (r) => (r.name || "").toLowerCase() === (primeMinister.name || "").toLowerCase()
+  );
+
+  if (!exists) {
+    buckets.federal.push({
+      ...primeMinister,
+      elected_office: "Prime Minister",
+      district_name: "Canada",
+    });
+  }
+}
+
 
   const response: LookupResponse = {
     postal,
