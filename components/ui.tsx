@@ -10,7 +10,7 @@ export function Button(props: React.ButtonHTMLAttributes<HTMLButtonElement>) {
     <button
       {...rest}
       className={
-  "w-full rounded-xl bg-gradient-to-b from-[#123A5F] to-[#0F2A44] px-4 py-3 text-sm font-semibold text-white shadow-md hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50 " +
+  "w-full rounded-xl bg-gradient-to-b from-[#3b82f6] to-[#2563eb] px-4 py-3 text-sm font-semibold tracking-wide text-white shadow-[0_10px_25px_rgba(37,99,235,0.35)] hover:brightness-105 active:translate-y-[1px] disabled:cursor-not-allowed disabled:opacity-50 " +
   className}
     />
   );
@@ -22,12 +22,13 @@ export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
     <input
       {...rest}
       className={
-        "w-full rounded-xl border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-zinc-300 " +
+        "w-full rounded-xl border border-zinc-300/80 bg-white/70 px-4 py-3 text-base text-zinc-900 shadow-sm outline-none placeholder:text-zinc-500 focus:border-blue-400 focus:ring-4 focus:ring-blue-200/50 " +
         className
       }
     />
   );
 }
+
 
 export function Pill({ children }: { children: React.ReactNode }) {
   return (

@@ -1,10 +1,9 @@
 "use client";
-
-import { useMemo, useState } from "react";
+import Image from "next/image";
+import { useMemo, useState, useRef } from "react";
 import { Button, Card, Input, Pill } from "@/components/ui";
 import type { LookupResponse } from "@/lib/types";
-import { Inter } from "next/font/google";
-const inter = Inter({ subsets: ["latin"] });
+
 
 function formatPostal(input: string) {
   const raw = input.replace(/\s+/g, "").toUpperCase();
@@ -19,6 +18,9 @@ export default function HomePage() {
   const [data, setData] = useState<LookupResponse | null>(null);
 
   const canSearch = useMemo(() => postal.replace(/\s+/g, "").length >= 6, [postal]);
+  const resultsRef = useRef<HTMLDivElement | null>(null);
+  const [modal, setModal] = useState<null | "privacy" | "terms" | "about">(null);
+
 
   async function onSearch() {
     setLoading(true);
@@ -29,6 +31,9 @@ export default function HomePage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || "Lookup failed");
       setData(json);
+      setTimeout(() => {
+        resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 50);
     } catch (e: any) {
       setError(e?.message ?? "Something went wrong");
     } finally {
@@ -37,56 +42,165 @@ export default function HomePage() {
   }
 
   return (
-    <div className="space-y-8">
-      <div className="space-y-3">
-        <h1 className="text-3xl font-semibold tracking-tight">Find Your Representatives</h1>
-        <p className="max-w-2xl text-zinc-600">
-          Enter a Calgary postal code and we’ll pull your current municipal, provincial, and federal representatives.
-        </p>
-      </div>
+    <div className="mx-auto max-w-6xl px-6 pt-1 pb-16 md:px-1 md:pt-2 md:pb-20">
+  <section className="relative">
 
-      <Card>
-        <div className="space-y-4">
-          <div className="space-y-2">
-            <div className="text-sm font-medium">Calgary Postal Code</div>
+    
+
+    <div className="relative px-6 py-10 md:px-12 md:py-14">
+      <div className="grid items-center gap-10 md:grid-cols-2">
+        {/* LEFT */}
+        <div className="space-y-6">
+          <h1 className="text-4xl font-extrabold leading-[0.95] tracking-tight text-zinc-900 md:text-5xl">
+            Know Your Leaders.
+            <br />
+            Instantly
+          </h1>
+
+          <div className="max-w-sm space-y-4 pt-2">
             <Input
-              placeholder="e.g., T2Y 4K1"
+              placeholder="Enter your Canadian postal code"
               value={postal}
               onChange={(e) => setPostal(formatPostal(e.target.value))}
               inputMode="text"
               autoCapitalize="characters"
             />
-            <div className="text-xs text-zinc-500">
-              Tip: Postal codes are usually accurate, but not always perfect. An address-confirmation step can make it 100% exact.
+
+            <Button onClick={onSearch} disabled={!canSearch || loading} className="h-12">
+              {loading ? "Searching…" : "Find my Representatives"}
+            </Button>
+
+            {error && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                {error}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* RIGHT */}
+        <div className="flex justify-center md:justify-end">
+          <div className="relative w-full max-w-sm">
+            <div className="absolute inset-0 flex items-center justify-center">
+              {/* Placeholder — we’ll swap this for your real image next */}
+              <div className="relative -mt-4 h-[320px] w-[320px] md:-mt-10 md:h-[420px] md:w-[420px]">
+                <Image
+                  src="/hero.png"
+                  alt="Parliament illustration"
+                  fill
+                  priority
+                  className="object-contain drop-shadow-[0_22px_55px_rgba(37,99,235,0.20)]"
+                />
+              </div>
             </div>
+            <div className="aspect-square w-full" />
           </div>
-
-          <Button onClick={onSearch} disabled={!canSearch || loading}>
-            {loading ? "Searching…" : "Find my representatives"}
-          </Button>
-
-          {error && <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
         </div>
-      </Card>
+      </div>
 
-      {data && (
-        <div className="space-y-6">
-          <div className="flex flex-wrap gap-2">
-            <Pill>Postal: {data.postal}</Pill>
-            {data.city && <Pill>City: {data.city}</Pill>}
-            {data.province && <Pill>Province: {data.province}</Pill>}
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <RepsCard title="Municipal" reps={data.reps.municipal} />
-            <RepsCard title="Provincial" reps={data.reps.provincial} />
-            <RepsCard title="Federal" reps={data.reps.federal} />
-          </div>
-
-          <Issues />
-        </div>
-      )}
+      <div className="mt-10 text-center text-xs text-zinc-500">
+        Trusted by Canadians. Data from official sources.
+      </div>
     </div>
+  </section>
+
+  {/* RESULTS stay exactly like before */}
+  {data && (
+  <div ref={resultsRef} className="mt-10 scroll-mt-24 space-y-6">
+      <div className="flex flex-wrap gap-2">
+        <Pill>Postal: {data.postal}</Pill>
+        {data.city && <Pill>City: {data.city}</Pill>}
+        {data.province && <Pill>Province: {data.province}</Pill>}
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        <RepsCard title="Municipal" reps={data.reps.municipal} />
+        <RepsCard title="Provincial" reps={data.reps.provincial} />
+        <RepsCard title="Federal" reps={data.reps.federal} />
+      </div>
+
+      <Issues />
+    </div>
+  )}
+  <footer className="mt-16 pb-10 text-center text-sm text-zinc-500">
+  <div className="flex items-center justify-center gap-6">
+    <button className="hover:text-zinc-900" onClick={() => setModal("privacy")}>Privacy</button>
+    <button className="hover:text-zinc-900" onClick={() => setModal("terms")}>Terms</button>
+    <button className="hover:text-zinc-900" onClick={() => setModal("about")}>About</button>
+  </div>
+</footer>
+{modal && (
+  <div
+    className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+    onClick={() => setModal(null)}
+  >
+    <div
+      className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div className="text-lg font-semibold">
+          {modal === "privacy" ? "Privacy" : modal === "terms" ? "Terms" : "About"}
+        </div>
+        <button
+          className="rounded-lg px-2 py-1 text-sm text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+          onClick={() => setModal(null)}
+        >
+          Close
+        </button>
+      </div>
+
+      <div className="mt-4 space-y-3 text-sm text-zinc-700">
+        {modal === "privacy" && (
+          <>
+            <p>
+              We don’t require accounts and we don’t sell personal data. Postal codes you enter are used only to fetch
+              your representatives and display results.
+            </p>
+            <p>
+              Basic technical logs (like IP address and browser info) may be collected by our hosting provider for
+              security and performance.
+            </p>
+          </>
+        )}
+
+        {modal === "terms" && (
+          <>
+            <p>
+              This site is provided “as is” for informational purposes. We aim for accuracy, but boundaries and offices
+              can change.
+            </p>
+            <p>
+              Always verify details on official government pages. By using the site, you agree not to misuse it or
+              attempt to disrupt service.
+            </p>
+          </>
+        )}
+
+        {modal === "about" && (
+          <>
+            <p>
+              myconstituency helps Canadians quickly find their municipal, provincial, and federal representatives. 
+              This platform is aimed to promote transparency on issues affecting Canadians in their respective constituencies. 
+            </p>
+            <p className="font-medium text-zinc-900">Data sources</p>
+            <ul className="list-disc space-y-1 pl-5">
+              <li>Represent (Open North) for representative lookups</li>
+              <li>Parliament of Canada (LEGISinfo) for federal bills/issues</li>
+              <li>City of Calgary Newsroom for municipal updates</li>
+              <li>Legislative Assembly of Alberta for provincial bill activity</li>
+            </ul>
+            <p className="text-xs text-zinc-500">
+              Note: postal-code lookups are usually accurate, but some postal codes overlap boundaries.
+            </p>
+          </>
+        )}
+      </div>
+    </div>
+  </div>
+)}
+
+</div>
+
   );
 }
 

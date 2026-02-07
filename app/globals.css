@@ -3,6 +3,17 @@
 @tailwind utilities;
 
 :root { color-scheme: light; }
+:root {
+  --page-bg: #ffffff;
+}
 
-body { @apply bg-[#F8F9F7] text-zinc-900; }
+body {
+  @apply text-zinc-900;
+  background:
+    radial-gradient(1200px 600px at 10% 10%, rgba(99,102,241,0.18), transparent 60%),
+    radial-gradient(900px 500px at 90% 20%, rgba(59,130,246,0.14), transparent 60%),
+    radial-gradient(900px 600px at 50% 100%, rgba(168,85,247,0.10), transparent 65%),
+    var(--page-bg);
+}
+
 
