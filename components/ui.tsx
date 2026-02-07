@@ -10,9 +10,8 @@ export function Button(props: React.ButtonHTMLAttributes<HTMLButtonElement>) {
     <button
       {...rest}
       className={
-        "rounded-xl bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50 " +
-        className
-      }
+  "w-full rounded-xl bg-gradient-to-b from-[#123A5F] to-[#0F2A44] px-4 py-3 text-sm font-semibold text-white shadow-md hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-50 " +
+  className}
     />
   );
 }
