@@ -37,7 +37,7 @@ export default function HomePage() {
   return (
     <div className="space-y-8">
       <div className="space-y-3">
-        <h1 className="text-3xl font-semibold tracking-tight">Find your reps in Calgary</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Know who represents you</h1>
         <p className="max-w-2xl text-zinc-600">
           Enter a Calgary postal code and we’ll pull your current municipal, provincial, and federal representatives.
         </p>
@@ -46,7 +46,7 @@ export default function HomePage() {
       <Card>
         <div className="space-y-4">
           <div className="space-y-2">
-            <div className="text-sm font-medium">Calgary postal code</div>
+            <div className="text-sm font-medium">Calgary Postal Code</div>
             <Input
               placeholder="e.g., T2Y 4K1"
               value={postal}
