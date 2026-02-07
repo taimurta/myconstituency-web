@@ -1,6 +1,8 @@
 import "./globals.css";
 import type { Metadata } from "next";
+import { Inter } from "next/font/google";
 
+const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "MyConstituency",
   description: "Find your municipal, provincial, and federal representatives in Calgary.",
@@ -9,7 +11,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>
+      <body className={inter.className}>
         <div className="min-h-screen">
           <header className="border-b">
             <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4">

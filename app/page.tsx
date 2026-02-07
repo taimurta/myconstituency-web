@@ -3,6 +3,8 @@
 import { useMemo, useState } from "react";
 import { Button, Card, Input, Pill } from "@/components/ui";
 import type { LookupResponse } from "@/lib/types";
+import { Inter } from "next/font/google";
+const inter = Inter({ subsets: ["latin"] });
 
 function formatPostal(input: string) {
   const raw = input.replace(/\s+/g, "").toUpperCase();
@@ -37,7 +39,7 @@ export default function HomePage() {
   return (
     <div className="space-y-8">
       <div className="space-y-3">
-        <h1 className="text-3xl font-semibold tracking-tight">Know who represents you</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">Find Your Representatives</h1>
         <p className="max-w-2xl text-zinc-600">
           Enter a Calgary postal code and we’ll pull your current municipal, provincial, and federal representatives.
         </p>
