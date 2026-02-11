@@ -34,6 +34,72 @@ function dedupeByName(reps: Representative[]) {
   }
   return out;
 }
+
+
+async function geocodePostalCanada(postal: string) {
+  const p = postal.replace(/\s+/g, "").toUpperCase();
+  const spaced = p.length === 6 ? `${p.slice(0, 3)} ${p.slice(3)}` : p;
+
+  // GeoGratis Canadian Geocoder (postal code search)
+  // It returns candidates with location coordinates.
+  const url =
+    "https://geogratis.gc.ca/services/geolocation/en/locate?q=" +
+    encodeURIComponent(spaced);
+
+  const res = await fetch(url, {
+    headers: { Accept: "application/json" },
+    next: { revalidate: 60 * 60 * 24 * 30 },
+  });
+
+  if (!res.ok) {
+    return { ok: false as const, status: res.status, url };
+  }
+
+  const json = await res.json();
+  const candidates = Array.isArray(json) ? json : json?.items || json?.results || [];
+
+  // Try a few possible shapes, because responses can vary
+  const first = candidates?.[0];
+  const coords =
+    first?.geometry?.coordinates ||
+    first?.location?.coordinates ||
+    first?.location ||
+    null;
+
+  if (!coords || coords.length < 2) {
+    return { ok: false as const, status: 200, url, empty: true };
+  }
+
+  // GeoJSON is [lon, lat]
+  const lon = Number(coords[0]);
+  const lat = Number(coords[1]);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+    return { ok: false as const, status: 200, url, badCoords: true };
+  }
+
+  return { ok: true as const, lat, lon, url };
+}
+
+async function fetchRepsByPoint(lat: number, lon: number) {
+  const endpoint = `https://represent.opennorth.ca/representatives/?point=${lat},${lon}`;
+
+  const res = await fetch(endpoint, {
+    headers: { Accept: "application/json" },
+    next: { revalidate: 1800 }, // 30 minutes
+  });
+
+  if (!res.ok) {
+    return { ok: false as const, status: res.status, endpoint };
+  }
+
+  const json = await res.json();
+  const objects = Array.isArray(json?.objects) ? json.objects : [];
+
+  return { ok: true as const, objects, endpoint };
+}
+
+
 async function fetchPrimeMinister() {
   const res = await fetch(
     "https://represent.opennorth.ca/representatives/house-of-commons/?limit=500",
@@ -132,9 +198,68 @@ export async function GET(req: Request) {
     next: { revalidate: 1800 },
   });
 
-  if (!res.ok) {
-    return NextResponse.json({ error: "Lookup failed", status: res.status }, { status: 502 });
+
+if (res.status === 404) {
+ 
+  
+  const geo = await geocodePostalCanada(postal);
+
+if (!geo.ok) {
+  return NextResponse.json(
+    { error: "We couldn’t find that postal code.", debug: { step: "geocode", geo, postal } },
+    { status: 404 }
+  );
+}
+
+const reps = await fetchRepsByPoint(geo.lat, geo.lon);
+
+
+  if (!reps.ok) {
+    return NextResponse.json(
+      {
+        error: "We couldn’t find that postal code.",
+        debug: {
+          step: "represent_point_lookup_failed",
+          reps,
+          geo,
+          postal,
+        },
+      },
+      { status: 404 }
+    );
   }
+
+  if (reps.objects.length === 0) {
+    return NextResponse.json(
+      {
+        error: "We couldn’t find that postal code.",
+        debug: {
+          step: "represent_point_lookup_empty",
+          endpoint: reps.endpoint,
+          geo,
+          postal,
+        },
+      },
+      { status: 404 }
+    );
+  }
+
+  // ✅ If we got here, fallback succeeded:
+  const combined = dedupeByName(reps.objects);
+  const buckets = bucket(combined);
+
+  return NextResponse.json({
+    postal,
+    reps: {
+      municipal: buckets.municipal,
+      provincial: buckets.provincial,
+      federal: buckets.federal,
+    },
+    note:
+      "This must be a new neighbourhood. We couldn’t find that exact postal code, but here’s the closest match based on location.",
+  });
+}
+
 
   const data = (await res.json()) as RepresentPostcodeResponse;
 
