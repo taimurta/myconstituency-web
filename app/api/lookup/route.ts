@@ -73,23 +73,46 @@ async function fetchPrimeMinister() {
 
 
 async function fetchPremier(provinceCode: string | undefined) {
-  if (provinceCode !== "AB") return null;
+  // Accept both "AB" and "Alberta" just in case
+  const p = (provinceCode || "").trim().toUpperCase();
+  const isAB = p === "AB" || p === "ALBERTA";
+  if (!isAB) return null;
 
-  const res = await fetch("https://represent.opennorth.ca/representatives/alberta-legislature/?limit=500", {
-    headers: { Accept: "application/json" },
-    next: { revalidate: 3600 },
-  });
+  const res = await fetch(
+    "https://represent.opennorth.ca/representatives/alberta-legislature/?limit=500",
+    {
+      headers: { Accept: "application/json" },
+      next: { revalidate: 3600 },
+    }
+  );
   if (!res.ok) return null;
 
   const json = await res.json();
   const objects: Representative[] = Array.isArray(json?.objects) ? json.objects : [];
 
-  // Premier is also typically a ROLE in extra.roles
+  const normalize = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
+
+  const isActualPremierRole = (role: string) => {
+    const r = normalize(role);
+
+    // must start with "premier" (allows "Premier of Alberta", "Premier (something)", etc.)
+    if (!r.startsWith("premier")) return false;
+
+    // reject false positives
+    if (r.startsWith("deputy premier")) return false;
+    if (r.includes("parliamentary secretary")) return false;
+    if (r.includes("to the premier")) return false;
+
+    return true;
+  };
+
   return (
-    objects.find((r: any) => Array.isArray(r?.extra?.roles) && r.extra.roles.some((x: string) => /premier/i.test(x))) ||
-    null
+    objects.find(
+      (r: any) => Array.isArray(r?.extra?.roles) && r.extra.roles.some(isActualPremierRole)
+    ) ?? null
   );
 }
+
 
 
 export async function GET(req: Request) {
