@@ -179,6 +179,26 @@ async function fetchPremier(provinceCode: string | undefined) {
   );
 }
 
+function provinceFromPostal(postal: string): string | undefined {
+  const c = (postal.replace(/\s+/g, "").toUpperCase()[0] ?? "");
+
+  // Canada Post forward sortation area (FSA) first-letter mapping (coarse, but works for province)
+  if (c === "A") return "NL";
+  if (c === "B") return "NS";
+  if (c === "C") return "PE";
+  if (c === "E") return "NB";
+  if (c === "G" || c === "H" || c === "J") return "QC";
+  if (c === "K" || c === "L" || c === "M" || c === "N" || c === "P") return "ON";
+  if (c === "R") return "MB";
+  if (c === "S") return "SK";
+  if (c === "T") return "AB";
+  if (c === "V") return "BC";
+  if (c === "Y") return "YT";
+  if (c === "X") return undefined; // NT/NU are ambiguous by letter alone
+
+  return undefined;
+}
+
 
 
 export async function GET(req: Request) {
@@ -248,6 +268,31 @@ const reps = await fetchRepsByPoint(geo.lat, geo.lon);
   const combined = dedupeByName(reps.objects);
   const buckets = bucket(combined);
 
+  // Add Premier + Prime Minister for geo fallback too
+const provinceCode = provinceFromPostal(postal);
+
+const [premier, primeMinister] = await Promise.all([
+  fetchPremier(provinceCode),
+  fetchPrimeMinister(),
+]);
+
+if (premier && !buckets.provincial.some(r => (r.name || "").toLowerCase() === (premier.name || "").toLowerCase())) {
+  buckets.provincial.push({
+    ...premier,
+    elected_office: "Premier",
+    district_name: "Alberta (provincewide)",
+  });
+}
+
+if (primeMinister && !buckets.federal.some(r => (r.name || "").toLowerCase() === (primeMinister.name || "").toLowerCase())) {
+  buckets.federal.push({
+    ...primeMinister,
+    elected_office: "Prime Minister",
+    district_name: "Canada (nationwide)",
+  });
+}
+
+  
   return NextResponse.json({
     postal,
     reps: {
@@ -262,6 +307,7 @@ const reps = await fetchRepsByPoint(geo.lat, geo.lon);
 
 
   const data = (await res.json()) as RepresentPostcodeResponse;
+  
 
   const centroid = Array.isArray(data.representatives_centroid) ? data.representatives_centroid : [];
   const concord = Array.isArray(data.representatives_concordance) ? data.representatives_concordance : [];
