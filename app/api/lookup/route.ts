@@ -280,7 +280,7 @@ if (premier && !buckets.provincial.some(r => (r.name || "").toLowerCase() === (p
   buckets.provincial.push({
     ...premier,
     elected_office: "Premier",
-    district_name: "Alberta (provincewide)",
+    district_name: "Alberta",
   });
 }
 
@@ -288,7 +288,7 @@ if (primeMinister && !buckets.federal.some(r => (r.name || "").toLowerCase() ===
   buckets.federal.push({
     ...primeMinister,
     elected_office: "Prime Minister",
-    district_name: "Canada (nationwide)",
+    district_name: "Canada",
   });
 }
 
