@@ -2,15 +2,19 @@ export type OfficeLevel = "municipal" | "provincial" | "federal";
 
 export type Representative = {
   name: string;
-  elected_office: string;
+  elected_office?: string;
   district_name?: string;
   party_name?: string;
   email?: string;
   url?: string;
-  photo_url?: string;
-  offices?: Array<{ type?: string; tel?: string; fax?: string; postal?: string }>;
   source_url?: string;
+  photo_url?: string;
+  extra?: any;
+
+  // add:
+  openparliament_politician_url?: string;
 };
+
 
 export type LookupResponse = {
   postal: string;
@@ -36,3 +40,5 @@ export type IssuesResponse = {
   source: "city" | "provincial" | "federal";
   items: IssueItem[];
 };
+
+

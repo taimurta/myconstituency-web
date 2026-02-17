@@ -7,6 +7,23 @@ const QuerySchema = z.object({
   postal: z.string().min(3),
 });
 
+const PROVINCE_NAME: Record<string, string> = {
+  AB: "Alberta",
+  BC: "British Columbia",
+  MB: "Manitoba",
+  NB: "New Brunswick",
+  NL: "Newfoundland and Labrador",
+  NS: "Nova Scotia",
+  NT: "Northwest Territories",
+  NU: "Nunavut",
+  ON: "Ontario",
+  PE: "Prince Edward Island",
+  QC: "Quebec",
+  SK: "Saskatchewan",
+  YT: "Yukon",
+};
+
+
 type RepresentPostcodeResponse = {
   postal_code: string;
   city: string | null;
@@ -16,11 +33,24 @@ type RepresentPostcodeResponse = {
 };
 
 function bucket(reps: Representative[]) {
-  const municipal = reps.filter(r => (r.elected_office || "").toLowerCase().includes("councillor") || (r.elected_office || "").toLowerCase().includes("alderman") || (r.elected_office || "").toLowerCase().includes("mayor"));
-  const provincial = reps.filter(r => (r.elected_office || "").toLowerCase().includes("mla") || (r.elected_office || "").toLowerCase().includes("mpp") || (r.elected_office || "").toLowerCase().includes("mna"));
-  const federal = reps.filter(r => (r.elected_office || "").toLowerCase().includes("mp"));
+  const office = (r: Representative) => (r.elected_office || "").toLowerCase();
+
+  const isMunicipal = (r: Representative) =>
+    /(mayor|councillor|alderman)/i.test(office(r));
+
+  const isProvincial = (r: Representative) =>
+    /\b(mla|mpp|mna)\b/i.test(office(r));
+
+  const isFederal = (r: Representative) =>
+    /\bmp\b/i.test(office(r)); // ✅ matches MP only, not MPP
+
+  const municipal = reps.filter(isMunicipal);
+  const provincial = reps.filter(isProvincial);
+  const federal = reps.filter(isFederal);
+
   return { municipal, provincial, federal };
 }
+
 
 function dedupeByName(reps: Representative[]) {
   const seen = new Set<string>();
@@ -33,6 +63,33 @@ function dedupeByName(reps: Representative[]) {
     }
   }
   return out;
+}
+
+async function findProvJurisdictionSlug(provinceCode?: string) {
+  if (!provinceCode) return null;
+
+  const provinceName = PROVINCE_NAME[provinceCode];
+  if (!provinceName) return null;
+
+  const res = await fetch("https://represent.opennorth.ca/jurisdictions/?limit=0", {
+    headers: { Accept: "application/json" },
+    next: { revalidate: 86400 }, // daily
+  });
+  if (!res.ok) return null;
+
+  const json = await res.json();
+  const objects: any[] = Array.isArray(json?.objects) ? json.objects : [];
+
+  // Heuristic: find a legislature/assembly jurisdiction that matches the province name
+  const pick = objects.find((j) => {
+    const name = (j?.name || "").toLowerCase();
+    return (
+      name.includes(provinceName.toLowerCase()) &&
+      (name.includes("legislative") || name.includes("legislature") || name.includes("assembly"))
+    );
+  });
+
+  return pick?.slug ?? null;
 }
 
 
@@ -158,26 +215,58 @@ async function fetchPremier(provinceCode: string | undefined) {
 
   const normalize = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
 
+  const isFalsePositive = (r: string) => {
+    // common “to the premier” / staff roles
+    if (r.includes("to the premier")) return true;
+    if (r.includes("premier's")) return true; // e.g., "Premier's Chief of Staff"
+    if (r.includes("chief of staff")) return true;
+    if (r.includes("principal secretary")) return true;
+    if (r.includes("press secretary")) return true;
+    if (r.includes("communications")) return true;
+    if (r.includes("parliamentary secretary")) return true;
+    if (r.includes("assistant")) return true;
+    if (r.includes("advisor")) return true;
+    if (r.includes("adviser")) return true;
+    if (r.includes("staff")) return true;
+
+    return false;
+  };
+
   const isActualPremierRole = (role: string) => {
     const r = normalize(role);
 
-    // must start with "premier" (allows "Premier of Alberta", "Premier (something)", etc.)
-    if (!r.startsWith("premier")) return false;
+    // reject obvious false positives early
+    if (isFalsePositive(r)) return false;
 
-    // reject false positives
+    // reject deputy premier
     if (r.startsWith("deputy premier")) return false;
-    if (r.includes("parliamentary secretary")) return false;
-    if (r.includes("to the premier")) return false;
+
+    // Accept:
+    // - "Premier"
+    // - "Premier of Alberta"
+    // - "Premier (something)" (rare)
+    // But require it to start with "premier"
+    if (!r.startsWith("premier")) return false;
 
     return true;
   };
 
+  const getRoles = (rep: any): string[] =>
+    Array.isArray(rep?.extra?.roles) ? rep.extra.roles.filter((x: any) => typeof x === "string") : [];
+
+  // Strong preference: exact “Premier of Alberta” if present
+  const exact = objects.find((rep: any) => {
+    const roles = getRoles(rep).map(normalize);
+    return roles.includes("premier of alberta");
+  });
+  if (exact) return exact as any;
+
+  // Next best: anything that passes the strict filter above
   return (
-    objects.find(
-      (r: any) => Array.isArray(r?.extra?.roles) && r.extra.roles.some(isActualPremierRole)
-    ) ?? null
+    objects.find((rep: any) => getRoles(rep).some(isActualPremierRole)) ?? null
   );
 }
+
 
 function provinceFromPostal(postal: string): string | undefined {
   const c = (postal.replace(/\s+/g, "").toUpperCase()[0] ?? "");

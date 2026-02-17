@@ -15,6 +15,7 @@ const ALBERTA_BILLS_PAGE = "https://www.assembly.ab.ca/assembly-business/bills/d
 
 const parser = new Parser();
 
+
 function cleanSummary(html?: string) {
   if (!html) return undefined;
   return html

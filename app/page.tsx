@@ -1,6 +1,6 @@
 "use client";
 import Image from "next/image";
-import { useMemo, useState, useRef } from "react";
+import { useMemo, useState, useRef, useEffect } from "react";
 import { Button, Card, Input, Pill } from "@/components/ui";
 import type { LookupResponse } from "@/lib/types";
 
@@ -21,21 +21,96 @@ function sortMunicipal(reps: LookupResponse["reps"]["municipal"]) {
   return [...nonMayor, ...mayor];
 }
 
+function normalizeVote(v: any) {
+  const s = String(v ?? "").toLowerCase();
+  if (s.includes("yea") || s === "yes") return "YES";
+  if (s.includes("nay") || s === "no") return "NO";
+  if (s.includes("paired")) return "PAIRED";
+  if (s.includes("absent") || s.includes("missed")) return "ABSENT";
+  return s ? s.toUpperCase() : "—";
+}
+
+function voteTone(vote: string) {
+  if (vote === "YES") return "yes";
+  if (vote === "NO") return "no";
+  return "other";
+}
+
+function VoteDot({ vote }: { vote: string }) {
+  const tone = voteTone(vote);
+  return (
+    <span
+      className={
+        "inline-block h-2.5 w-2.5 rounded-full " +
+        (tone === "yes"
+          ? "bg-emerald-500"
+          : tone === "no"
+          ? "bg-rose-500"
+          : "bg-zinc-300")
+      }
+      aria-hidden="true"
+    />
+  );
+}
+
+function formatVoteTitle(title: string) {
+  const t = (title || "").trim();
+
+  // bill code like C-227 or S-210
+  const billMatch = t.match(/\b([CS]-\d+)\b/i);
+  const billCode = billMatch ? billMatch[1].toUpperCase() : null;
+
+  // stage like "2nd reading"
+  const stageMatch = t.match(/\b(1st|2nd|3rd)\s+reading\b/i);
+  const stage = stageMatch ? stageMatch[0].toLowerCase() : null;
+
+  const isBill = /\bBill\b/i.test(t) || !!billCode;
+  const type = isBill ? "Bill" : "Motion";
+
+  // pull the "An Act ..." part if it exists
+  const actIdx = t.toLowerCase().indexOf("an act");
+  let short = actIdx >= 0 ? t.slice(actIdx) : t;
+
+  // clean prefixes like "2nd reading of Bill C-123,"
+  short = short
+    .replace(/^(1st|2nd|3rd)\s+reading of\s+/i, "")
+    .replace(/^Bill\s+[CS]-\d+,\s*/i, "")
+    .replace(/^Opposition Motion\s*\((.*?)\)\s*/i, "Opposition motion: $1")
+    .trim();
+
+  // keep it short
+  if (short.length > 90) short = short.slice(0, 87) + "…";
+
+  return { type, billCode, stage, short };
+}
+
+
 export default function HomePage() {
+  const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [voteLoadingKey, setVoteLoadingKey] = useState<string | null>(null);
+  const [voteErrorKey, setVoteErrorKey] = useState<string | null>(null);
+  const [voteData, setVoteData] = useState<Record<string, any>>({});
   const [postal, setPostal] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<LookupResponse | null>(null);
-
   const canSearch = useMemo(() => postal.replace(/\s+/g, "").length >= 6, [postal]);
   const resultsRef = useRef<HTMLDivElement | null>(null);
   const [modal, setModal] = useState<null | "privacy" | "terms" | "about">(null);
+
 
 
   async function onSearch() {
     setLoading(true);
     setError(null);
     setData(null);
+
+    // reset vote-related state
+    setExpandedKey(null);
+    setVoteLoadingKey(null);
+    setVoteErrorKey(null);
+    setVoteData({});
+
     try {
       const res = await fetch(`/api/lookup?postal=${encodeURIComponent(postal)}`);
       const json = await res.json();
@@ -50,6 +125,318 @@ export default function HomePage() {
       setLoading(false);
     }
   }
+
+ async function loadFederalVotes(repKey: string, name: string, riding?: string) {
+  setVoteLoadingKey(repKey);
+  setVoteErrorKey(null);
+
+  try {
+    const res = await fetch(
+      `/api/federal-votes?name=${encodeURIComponent(name)}&riding=${encodeURIComponent(riding || "")}`
+    );
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error || "Failed to load votes");
+    setVoteData((prev) => ({ ...prev, [repKey]: json }));
+  } catch (e: any) {
+    setVoteErrorKey(e?.message ?? "Failed to load votes");
+  } finally {
+    setVoteLoadingKey(null);
+  }
+}
+
+function RepsCard({
+  title,
+  reps,
+}: {
+  title: string;
+  reps: LookupResponse["reps"]["municipal"];
+}) {
+  return (
+    <Card>
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-semibold">{title}</div>
+          <InfoTooltip title={title} />
+        </div>
+
+        {reps.length === 0 ? (
+          <div className="text-sm text-zinc-600">
+            No results returned. Try a different postal code.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {reps
+              .slice(0, 3)
+              .filter((r) => r && r.name)
+              .map((r) => {
+                const repKey = `${title}-${r.name}-${r.district_name || ""}`;
+                const isFederal = title === "Federal";
+                const isOpen = expandedKey === repKey;
+
+                const votes = voteData[repKey]?.items as any[] | undefined;
+                const summary = (() => {
+                  const list = (votes ?? []).map((it: any) => normalizeVote(it.vote));
+
+                  const yes = list.filter((v) => v === "YES").length;
+                  const no = list.filter((v) => v === "NO").length;
+                  const other = list.filter((v) => v !== "YES" && v !== "NO" && v !== "—").length;
+
+                  const total = yes + no + other;
+                  const pct = (n: number) => (total ? Math.round((n / total) * 100) : 0);
+
+                  return { yes, no, other, total, yesPct: pct(yes), noPct: pct(no), otherPct: pct(other) };
+                })();
+
+                const counts = (() => {
+                  const list = (votes ?? []).map((it: any) => normalizeVote(it.vote));
+                  const yes = list.filter(v => v === "YES").length;
+                  const no = list.filter(v => v === "NO").length;
+                  const other = list.length - yes - no;
+                  return { yes, no, other };
+                })();
+
+                const profileUrl = voteData[repKey]?.mp?.profile_url as
+                  | string
+                  | undefined;
+
+                  function formatDate(d?: string) {
+                    if (!d) return "";
+                    const date = new Date(d);
+                    return date.toLocaleDateString("en-CA", {
+                      month: "short",
+                      day: "numeric",
+                      year: "numeric",
+                    });
+                  }
+
+                return (
+                  <div key={repKey} className="space-y-2">
+                    <div className="flex items-center gap-3">
+                      {/* Avatar */}
+                      <div className="h-12 w-12 overflow-hidden rounded-full bg-zinc-100 ring-1 ring-zinc-200">
+                        {r.photo_url ? (
+                          <img
+                            src={r.photo_url}
+                            alt={r.name}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).style.display =
+                                "none";
+                            }}
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-zinc-600">
+                            {getInitials(r.name)}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Name + subtitle */}
+                      <div className="min-w-0">
+                        <div className="font-medium leading-tight">{r.name}</div>
+                        <div className="text-sm text-zinc-600">
+                          {r.elected_office}
+                          {r.district_name ? ` • ${r.district_name}` : ""}
+                          {r.party_name ? ` • ${r.party_name}` : ""}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Links row */}
+                    <div className="flex flex-wrap items-center gap-4 pt-1 text-sm">
+                      {r.email && (
+                        <a className="underline" href={`mailto:${r.email}`}>
+                          Email
+                        </a>
+                      )}
+                      {r.url && (
+                        <a
+                          className="underline"
+                          href={r.url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Official page
+                        </a>
+                      )}
+
+                      {/* Expand / Collapse (Federal only) */}
+                      {isFederal && (
+                        <button
+                          className="underline"
+                          onClick={async () => {
+                            if (isOpen) {
+                              setExpandedKey(null);
+                              return;
+                            }
+                            setExpandedKey(repKey);
+
+                            // Only load once per rep
+                            if (!voteData[repKey]) {
+                              await loadFederalVotes(repKey, r.name, r.district_name);
+                            }
+                          }}
+                        >
+                          {isOpen ? "Collapse" : "Expand"}
+                        </button>
+                      )}
+
+                    </div>
+
+                    {/* Expanded section (Federal only) */}
+                    {isFederal && isOpen && (
+                      <div className="mt-3 rounded-2xl bg-zinc-50 p-4">
+                        {/* Voting summary (no extra card, just text) */}
+                        <div className="mt-3 space-y-2 text-sm text-zinc-700">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500/80" />
+                              <span>Yes</span>
+                            </div>
+                            <div className="font-medium">{summary.total ? `${summary.yes} (${summary.yesPct}%)` : "—"}</div>
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="inline-block h-2.5 w-2.5 rounded-full bg-rose-500/80" />
+                              <span>No</span>
+                            </div>
+                            <div className="font-medium">{summary.total ? `${summary.no} (${summary.noPct}%)` : "—"}</div>
+                          </div>
+
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="inline-block h-2.5 w-2.5 rounded-full bg-zinc-300" />
+                              <span>Other / missed</span>
+                            </div>
+                            <div className="font-medium">{summary.total ? `${summary.other} (${summary.otherPct}%)` : "—"}</div>
+                          </div>
+
+                          <div className="pt-2 text-xs text-zinc-500">
+                            Based on the most recent {Math.min((votes ?? []).length, 5)} votes shown below.
+                          </div>
+                        </div>
+
+
+                        {/* Recent key votes: ONE card */}
+                        <div className="mt-4 rounded-2xl border border-zinc-200 bg-white p-4">
+                          <div className="text-sm font-semibold text-zinc-900">Recent Key Votes</div>
+
+                          {voteLoadingKey === repKey && (
+                            <div className="mt-3 text-sm text-zinc-600">Loading votes…</div>
+                          )}
+
+                          {!voteLoadingKey && voteErrorKey && (
+                            <div className="mt-3 text-sm text-rose-700">{voteErrorKey}</div>
+                          )}
+
+                          {!voteLoadingKey && !voteErrorKey && (
+                            <div className="mt-3 divide-y divide-zinc-100">
+                              {(votes ?? []).slice(0, 5).map((it: any, i: number) => {
+                                const v = normalizeVote(it.vote);
+                                const passed =
+                                  it.result?.toLowerCase() === "passed"
+                                    ? "PASSED"
+                                    : it.result?.toLowerCase() === "failed"
+                                    ? "FAILED"
+                                    : null;
+
+                                const meta = formatVoteTitle(it.title);
+
+                                // Build one clean headline:
+                                // "Bill S-210 — An Act respecting Ukrainian Heritage Month"
+                                // or "Motion — Opposition motion: Food affordability"
+                                const headlineLeft = meta.billCode
+                                  ? `${meta.type} ${meta.billCode}`
+                                  : `${meta.type}`;
+
+                                const headline = `${headlineLeft} — ${meta.short}`;
+
+                                return (
+                                  <div
+                                    key={it.vote_url ?? `${it.title}-${it.date ?? "na"}-${i}`}
+                                    className="py-3"
+                                  >
+                                    {/* Headline */}
+                                    <div className="text-sm font-medium text-zinc-900">
+                                      {headline}
+                                    </div>
+
+                                    {/* Vote line */}
+                                    <div className="mt-2 flex items-center gap-2 text-sm">
+                                      <span className="text-zinc-600">Vote:</span>
+                                      <VoteDot vote={v} />
+                                      <span
+                                        className={
+                                          v === "YES"
+                                            ? "font-semibold text-emerald-700"
+                                            : v === "NO"
+                                            ? "font-semibold text-rose-700"
+                                            : "font-semibold text-zinc-700"
+                                        }
+                                      >
+                                        {v}
+                                      </span>
+
+                                      {meta.stage ? (
+                                        <span className="text-zinc-500">• {meta.stage}</span>
+                                      ) : null}
+                                    </div>
+
+                                    {/* Date + link */}
+                                    <div className="mt-1 text-xs text-zinc-500">
+                                      {it.date ?? ""}
+                                      {it.vote_url ? (
+                                        <>
+                                          {" • "}
+                                          <a className="underline" href={it.vote_url} target="_blank" rel="noreferrer">
+                                            Official vote
+                                          </a>
+                                        </>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+
+
+
+                              {(votes ?? []).length === 0 && (
+                                <div className="py-3 text-sm text-zinc-600">No recent votes found.</div>
+                              )}
+                            </div>
+                          )}
+
+                          {profileUrl && (
+                            <div className="mt-4">
+                              <a className="underline text-sm" href={profileUrl} target="_blank" rel="noreferrer">
+                                View complete parliamentary record →
+                              </a>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                  </div>
+                );
+              })}
+
+            {reps.length > 2 && (
+              <div className="text-xs text-zinc-500">
+                + {reps.length - 2} more (postal codes can overlap districts)
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+
 
   return (
     <div className="mx-auto max-w-6xl px-6 pt-1 pb-16 md:px-1 md:pt-2 md:pb-20">
@@ -215,77 +602,55 @@ export default function HomePage() {
   );
 }
 
-function RepsCard({ title, reps }: { title: string; reps: LookupResponse["reps"]["municipal"] }) {
+
+function InfoTooltip({ title }: { title: string }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+
+  const description =
+    title === "Municipal"
+      ? "Handles local issues like roads, garbage, and city bylaws."
+      : title === "Provincial"
+      ? "Handles healthcare, education, and provincial laws."
+      : "Handles national laws, immigration, and defense.";
+
+  useEffect(() => {
+    if (!open) return;
+
+    function onDown(e: MouseEvent) {
+      const el = wrapRef.current;
+      if (!el) return;
+      if (!el.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
   return (
-    <Card>
-      <div className="space-y-3">
-        <div className="text-sm font-semibold">{title}</div>
-        {reps.length === 0 ? (
-          <div className="text-sm text-zinc-600">No results returned. Try a different postal code.</div>
-        ) : (
-          <div className="space-y-4">
-            {reps.slice(0, 3).filter(r => r && r.name).map((r, idx) => (
-              <div key={idx} className="space-y-2">
-                <div className="flex items-center gap-3">
-                  {/* Avatar */}
-                  <div className="h-12 w-12 overflow-hidden rounded-full bg-zinc-100 ring-1 ring-zinc-200">
-                    {r.photo_url ? (
-                      <img
-                        src={r.photo_url}
-                        alt={r.name}
-                        className="h-full w-full object-cover"
-                        loading="lazy"
-                        referrerPolicy="no-referrer"
-                        onError={(e) => {
-                          // If image fails, hide it so fallback initials show next render
-                          (e.currentTarget as HTMLImageElement).style.display = "none";
-                        }}
-                      />
-                    ) : (
-                      <div className="flex h-full w-full items-center justify-center text-sm font-semibold text-zinc-600">
-                        {getInitials(r.name)}
-                      </div>
-                    )}
-                  </div>
+    <div ref={wrapRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex h-6 w-6 items-center justify-center rounded-full bg-zinc-100 text-xs font-semibold text-zinc-700 hover:bg-zinc-200"
+        aria-label={`${title} info`}
+      >
+        i
+      </button>
 
-                  {/* Name + subtitle */}
-                  <div className="min-w-0">
-                    <div className="font-medium leading-tight">{r.name}</div>
-                    <div className="text-sm text-zinc-600">
-                      {r.elected_office}
-                      {r.district_name ? ` • ${r.district_name}` : ""}
-                      {r.party_name ? ` • ${r.party_name}` : ""}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2 pt-1 text-sm">
-                  {r.email && (
-                    <a className="underline" href={`mailto:${r.email}`}>
-                      Email
-                    </a>
-                  )}
-                  {r.url && (
-                    <a className="underline" href={r.url} target="_blank" rel="noreferrer">
-                      Official page
-                    </a>
-                  )}
-                  {r.source_url && (
-                    <a className="underline" href={r.source_url} target="_blank" rel="noreferrer">
-                      Source
-                    </a>
-                  )}
-                </div>
-              </div>
-            ))}
-
-            {reps.length > 2 && <div className="text-xs text-zinc-500">+ {reps.length - 2} more (postal codes can overlap districts)</div>}
-          </div>
-        )}
-      </div>
-    </Card>
+      {open && (
+        <div className="absolute right-0 top-8 z-20 w-64 rounded-xl border border-zinc-200 bg-white p-3 text-xs text-zinc-700 shadow-lg">
+          {description}
+        </div>
+      )}
+    </div>
   );
 }
+
+
+
 function getInitials(name: string) {
   const parts = name.trim().split(/\s+/);
   const first = parts[0]?.[0] ?? "";
