@@ -97,13 +97,16 @@ export default function HomePage() {
   const canSearch = useMemo(() => postal.replace(/\s+/g, "").length >= 6, [postal]);
   const resultsRef = useRef<HTMLDivElement | null>(null);
   const [modal, setModal] = useState<null | "privacy" | "terms" | "about">(null);
-
+  const [provItems, setProvItems] = useState<any[] | null>(null);
+  const [provItemsLoading, setProvItemsLoading] = useState(false);
+  const [provItemsError, setProvItemsError] = useState<string | null>(null);
 
 
   async function onSearch() {
     setLoading(true);
     setError(null);
     setData(null);
+    setExpandedKey(null);
 
     // reset vote-related state
     setExpandedKey(null);
@@ -125,6 +128,50 @@ export default function HomePage() {
       setLoading(false);
     }
   }
+
+async function loadProvincialItemsOnce() {
+  // Only fetch once per page load (so every provincial rep uses the same list)
+  if (provItems || provItemsLoading) return;
+
+  setProvItemsLoading(true);
+  setProvItemsError(null);
+
+  try {
+    const res = await fetch(`/api/issues?source=provincial`);
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error || "Failed to load provincial items");
+    setProvItems(Array.isArray(json.items) ? json.items : []);
+  } catch (e: any) {
+    setProvItemsError(e?.message ?? "Failed to load provincial items");
+    setProvItems([]);
+  } finally {
+    setProvItemsLoading(false);
+  }
+}
+
+async function loadAlbertaVotes(repKey: string, name: string) {
+  setVoteLoadingKey(repKey);
+  setVoteErrorKey(null);
+
+  try {
+    const res = await fetch(`/api/alberta-votes?name=${encodeURIComponent(name)}`);
+    const text = await res.text();
+
+    let json: any = null;
+    try {
+      json = JSON.parse(text);
+    } catch {
+      throw new Error(`Alberta votes API returned HTML (not JSON). Status ${res.status}`);
+    }
+
+    if (!res.ok) throw new Error(json?.error || "Failed to load votes");
+    setVoteData((prev) => ({ ...prev, [repKey]: json }));
+  } catch (e: any) {
+    setVoteErrorKey(e?.message ?? "Failed to load votes");
+  } finally {
+    setVoteLoadingKey(null);
+  }
+}
 
  async function loadFederalVotes(repKey: string, name: string, riding?: string) {
   setVoteLoadingKey(repKey);
@@ -245,45 +292,111 @@ function RepsCard({
                     </div>
 
                     {/* Links row */}
-                    <div className="flex flex-wrap items-center gap-4 pt-1 text-sm">
+                    <div className="flex flex-wrap gap-2 pt-1 text-sm">
                       {r.email && (
                         <a className="underline" href={`mailto:${r.email}`}>
                           Email
                         </a>
                       )}
+
                       {r.url && (
-                        <a
-                          className="underline"
-                          href={r.url}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
+                        <a className="underline" href={r.url} target="_blank" rel="noreferrer">
                           Official page
                         </a>
                       )}
 
-                      {/* Expand / Collapse (Federal only) */}
-                      {isFederal && (
+                      {/* Expand: Federal + Provincial */}
+                      {(title === "Federal" || title === "Provincial") && (
                         <button
+                          type="button"
                           className="underline"
                           onClick={async () => {
-                            if (isOpen) {
-                              setExpandedKey(null);
-                              return;
-                            }
-                            setExpandedKey(repKey);
+                            const nextOpen = expandedKey !== repKey;
+                            setExpandedKey(nextOpen ? repKey : null);
 
-                            // Only load once per rep
-                            if (!voteData[repKey]) {
+                            // Federal: load votes
+                            if (nextOpen && title === "Federal") {
                               await loadFederalVotes(repKey, r.name, r.district_name);
+                            }
+
+                            // Provincial (AB only for now): load Alberta votes
+                            if (nextOpen && title === "Provincial") {
+                              if (!voteData[repKey]) {
+                                await loadAlbertaVotes(repKey, r.name);
+                              }
                             }
                           }}
                         >
-                          {isOpen ? "Collapse" : "Expand"}
+                          {expandedKey === repKey ? "Collapse" : "Expand"}
                         </button>
                       )}
+                                          </div>
 
-                    </div>
+                      {/* Expanded panel (Provincial - Alberta votes) */}
+                      {title === "Provincial" && isOpen && (
+                        <div className="mt-3 rounded-2xl bg-zinc-50 p-4">
+                          {voteLoadingKey === repKey && (
+                            <div className="text-sm text-zinc-600">Loading votes…</div>
+                          )}
+
+                          {!voteLoadingKey && voteErrorKey && (
+                            <div className="text-sm text-red-700">{voteErrorKey}</div>
+                          )}
+
+                          {!voteLoadingKey && !voteErrorKey && (
+                            <div className="space-y-3">
+                              {(voteData[repKey]?.items ?? []).slice(0, 5).map((it: any, i: number) => {
+                                const yes = String(it.vote || "").toLowerCase() === "yes";
+                                const passed =
+                                  it.passed === true ? "✅ YES" : it.passed === false ? "❌ NO" : "—";
+
+                                return (
+                                  <div
+                                    key={it.official_url ?? `${it.title}-${i}`}
+                                    className="rounded-xl bg-white p-3 ring-1 ring-zinc-200"
+                                  >
+                                    <div className="text-sm font-semibold text-zinc-900">
+                                      {it.title}
+                                    </div>
+
+                                    <div className="mt-1 text-sm text-zinc-700">
+                                      Vote:{" "}
+                                      <span
+                                        className={
+                                          yes
+                                            ? "font-semibold text-green-700"
+                                            : "font-semibold text-red-700"
+                                        }
+                                      >
+                                        {yes ? "✅ YES" : "❌ NO"}
+                                      </span>{" "}
+                                      • Passed: <span className="font-semibold">{passed}</span>
+                                    </div>
+
+                                    <div className="mt-1 text-xs text-zinc-500">
+                                      {it.date ? `${it.date} • ` : ""}
+                                      <a
+                                        className="underline"
+                                        href={it.official_url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        Official record
+                                      </a>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+
+                              {(voteData[repKey]?.items ?? []).length === 0 && (
+                                <div className="text-sm text-zinc-600">
+                                  No recorded votes found in the latest sitting days.
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
 
                     {/* Expanded section (Federal only) */}
                     {isFederal && isOpen && (
