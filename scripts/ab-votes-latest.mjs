@@ -15,8 +15,7 @@ function lastNameOf(fullName) {
   return parts.length ? parts[parts.length - 1] : "";
 }
 
-function extractLatestVpPdfUrl(html) {
-  // grab pdf links
+function extractLatestVpPdfUrls(html, limit = 3) {
   const matches = Array.from(
     html.matchAll(/href\s*=\s*["']([^"' ]+\.pdf)["']/gi)
   ).map((m) => m[1]);
@@ -28,13 +27,11 @@ function extractLatestVpPdfUrl(html) {
     return `https://www.assembly.ab.ca/${href}`;
   };
 
-  // normalize &amp; and slashes
   const abs = matches
     .map(toAbs)
     .map((u) => u.replace(/&amp;/g, "&"))
     .map((u) => u.replace(/\\/g, "/"));
 
-  // filter to likely Votes & Proceedings PDFs (VP)
   const vp = abs.filter((u) => {
     const l = u.toLowerCase();
     return (
@@ -43,15 +40,16 @@ function extractLatestVpPdfUrl(html) {
     );
   });
 
-  // pick latest by YYYYMMDD in filename if present
+  // Sort by YYYYMMDD in filename
   const withDate = vp
     .map((u) => {
       const m = u.match(/(\d{8})_\d{4}_\d{2}_vp\.pdf/i);
       return { u, date: m ? Number(m[1]) : 0 };
     })
-    .sort((a, b) => b.date - a.date);
+    .sort((a, b) => b.date - a.date)
+    .map((x) => x.u);
 
-  return withDate[0]?.u || vp[0] || null;
+  return withDate.slice(0, limit);
 }
 
 async function pdfBufferToText(buf) {
@@ -171,14 +169,25 @@ async function main() {
   }
 
   const html = await res.text();
-  const pdfUrl = extractLatestVpPdfUrl(html);
 
-  if (!pdfUrl) {
-    console.log(JSON.stringify({ jurisdiction: "Alberta", mla: { name }, items: [], note: "No VP PDF found." }));
-    process.exit(0);
-  }
+const pdfUrls = extractLatestVpPdfUrls(html, 3);
 
-  if (debug) diagnostics.push({ step: "latest_pdf", pdfUrl });
+if (!pdfUrls.length) {
+  console.log(
+    JSON.stringify({
+      jurisdiction: "Alberta",
+      mla: { name },
+      items: [],
+      note: "No VP PDFs found.",
+    })
+  );
+  process.exit(0);
+}
+
+let allVotes = [];
+
+for (const pdfUrl of pdfUrls) {
+  if (debug) diagnostics.push({ step: "checking_pdf", pdfUrl });
 
   const pdfRes = await fetch(pdfUrl, {
     headers: {
@@ -187,27 +196,28 @@ async function main() {
     },
   });
 
-  if (!pdfRes.ok) {
-    console.log(JSON.stringify({ error: `PDF fetch failed: ${pdfRes.status}`, pdfUrl }));
-    process.exit(0);
-  }
+  if (!pdfRes.ok) continue;
 
   const ab = await pdfRes.arrayBuffer();
   const buf = Buffer.from(ab);
 
   const firstBytes = buf.slice(0, 10).toString("utf8");
-  if (!firstBytes.startsWith("%PDF-")) {
-    console.log(JSON.stringify({ error: "Not a PDF response", pdfUrl, firstBytes }));
-    process.exit(0);
-  }
+  if (!firstBytes.startsWith("%PDF-")) continue;
 
   const text = await pdfBufferToText(buf);
-  if (debug) diagnostics.push({ step: "pdf_text", textLen: text.length });
 
-  const votes = extractVotesForMla(text, name, riding).slice(0, 12).map((v) => ({
+  const votes = extractVotesForMla(text, name, riding).map((v) => ({
     ...v,
     official_url: pdfUrl,
   }));
+
+  allVotes.push(...votes);
+
+  // Stop early if we already found enough
+  if (allVotes.length >= 12) break;
+}
+
+const votes = allVotes.slice(0, 12);
 
   const out = {
     jurisdiction: "Alberta",
