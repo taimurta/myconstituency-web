@@ -330,7 +330,7 @@ function RepsCard({
                           {expandedKey === repKey ? "Collapse" : "Expand"}
                         </button>
                       )}
-                                          </div>
+                      </div>
 
                       {/* Expanded panel (Provincial - Alberta votes) */}
                       {title === "Provincial" && isOpen && (
@@ -762,7 +762,35 @@ function InfoTooltip({ title }: { title: string }) {
   );
 }
 
+function calgarySlug(name: string) {
+  // "Sonny Chahal" -> "sonny-chahal"
+  return name
+    .toLowerCase()
+    .replace(/[^a-z\s-]/g, "")
+    .trim()
+    .replace(/\s+/g, "-");
+}
 
+function isCalgaryMunicipal(title: string, rep: any) {
+  if (title !== "Municipal") return false;
+  const dn = String(rep?.district_name || "").toLowerCase();
+  // wards + mayor usually show up like "Ward 1", "Ward 11", etc
+  return dn.includes("ward") || dn.includes("calgary");
+}
+
+function calgaryProfileUrl(rep: any) {
+  // Calgary councillor pages are often under calgary.ca with name slug.
+  // This may not be perfect for every councillor, but it's a good fallback.
+  const slug = calgarySlug(rep?.name || "");
+  if (!slug) return null;
+
+  // Choose ONE of these patterns (keep the one that works for you):
+  // Pattern A (often used for councillors):
+  return `https://www.calgary.ca/council/councillors/${slug}.html`;
+
+  // Pattern B (if Calgary uses a different structure in your testing):
+  // return `https://www.calgary.ca/council/councillors/ward-${wardNumber}/${slug}.html`;
+}
 
 function getInitials(name: string) {
   const parts = name.trim().split(/\s+/);
