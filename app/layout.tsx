@@ -7,6 +7,9 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "MyConstituency",
   description: "Find your municipal, provincial, and federal representatives in Calgary.",
+   icons: {
+    icon: "/hero.png",
+  },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
